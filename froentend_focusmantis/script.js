@@ -194,7 +194,8 @@
     popup.innerHTML = `<div class="popup-card"><strong>${title}</strong><p>${message}</p><button data-close>OK</button></div>`;
     document.body.appendChild(popup);
     popup.querySelector('[data-close]').addEventListener('click', () => popup.remove());
-    setTimeout(() => popup.remove(), 6000);
+    // The line below was removed to prevent the popup from closing automatically
+    // setTimeout(() => popup.remove(), 6000); 
   }
 
   // Initialize when DOM is ready
@@ -226,5 +227,3 @@
 
   addUploadStyles();
 })();
-
-

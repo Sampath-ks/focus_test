@@ -80,63 +80,30 @@
       return;
     }
 
-    // Show processing state
-    showMessage(label, `Converting to ${category}...`, 'processing');
+    // Create UI elements for progress
+    const progress = ensureProgressUI(zone, label);
+    updateProgress(progress, 0, 'Uploading...');
     
     try {
       // Create FormData for upload
       const formData = new FormData();
       formData.append('file', file);
 
-      // Send to backend
-      const response = await fetch(`${API_BASE}/convert/${category}`, {
-        method: 'POST',
-        body: formData
-      });
+      // Send to backend with streaming upload progress
+      const response = await fetch(`${API_BASE}/convert/${category}`, { method: 'POST', body: formData });
+      const kickoff = await response.json();
 
-      const result = await response.json();
-
-      if (result.success) {
-        showMessage(label, `${category} conversion complete!`, 'success');
-        
-        // Create download link
-        const downloadLink = document.createElement('a');
-        downloadLink.href = `${API_BASE}${result.download_url}`;
-        downloadLink.textContent = 'Download Converted File';
-        downloadLink.className = 'download-link';
-        downloadLink.download = result.filename;
-        
-        // Replace label with download link
-        label.innerHTML = '';
-        label.appendChild(downloadLink);
-        
-        // Add download button styling
-        downloadLink.style.cssText = `
-          display: inline-block;
-          padding: 8px 16px;
-          background: #10b981;
-          color: white;
-          text-decoration: none;
-          border-radius: 8px;
-          font-weight: 600;
-          transition: background 0.2s;
-        `;
-        
-        downloadLink.addEventListener('mouseenter', () => {
-          downloadLink.style.background = '#059669';
-        });
-        
-        downloadLink.addEventListener('mouseleave', () => {
-          downloadLink.style.background = '#10b981';
-        });
-        
-      } else {
-        showMessage(label, `Conversion failed: ${result.error}`, 'error');
+      if (!response.ok || !kickoff.task_id) {
+        throw new Error(kickoff.error || 'Upload failed');
       }
+
+      // Poll progress
+      await pollProgress(kickoff.task_id, progress, label);
       
     } catch (error) {
       console.error('Upload error:', error);
-      showMessage(label, 'Conversion failed. Please try again.', 'error');
+      showPopup('Song not uploaded', (error && error.message) || 'Please try again.');
+      showMessage(label, 'Upload failed. Try again.', 'error');
     }
   }
 
@@ -160,6 +127,74 @@
     } else if (type === 'processing') {
       label.style.color = '#3b82f6';
     }
+  }
+
+  async function pollProgress(taskId, progressEls, label) {
+    let lastPercent = 0;
+    updateProgress(progressEls, 10, 'Loading...');
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/progress/${taskId}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Progress error');
+
+        const percent = typeof data.percent === 'number' ? data.percent : lastPercent;
+        lastPercent = percent;
+        const statusMsg = data.status === 'writing' ? 'Finalizing...' : (data.status || 'Processing...');
+        updateProgress(progressEls, percent, statusMsg);
+
+        if (data.status === 'completed' && data.download_url) {
+          clearInterval(interval);
+          showMessage(label, 'Conversion complete!', 'success');
+          const link = document.createElement('a');
+          link.href = `${API_BASE}${data.download_url}`;
+          link.textContent = 'Download Converted File';
+          link.className = 'download-link';
+          link.download = (data.filename || 'converted.wav');
+          label.innerHTML = '';
+          label.appendChild(link);
+        } else if (data.status === 'failed') {
+          clearInterval(interval);
+          showPopup('Conversion failed', data.error || 'Please try another file.');
+          showMessage(label, 'Conversion failed. Please try again.', 'error');
+        }
+      } catch (e) {
+        clearInterval(interval);
+        showPopup('Conversion failed', e.message || 'Please try again.');
+        showMessage(label, 'Conversion failed. Please try again.', 'error');
+      }
+    }, 700);
+  }
+
+  function ensureProgressUI(zone, label) {
+    let bar = zone.querySelector('.progress');
+    if (!bar) {
+      const wrap = document.createElement('div');
+      wrap.className = 'progress';
+      wrap.innerHTML = '<div class="progress-bar"></div><span class="progress-text"></span>';
+      zone.appendChild(wrap);
+    }
+    const root = zone.querySelector('.progress');
+    return {
+      root,
+      bar: root.querySelector('.progress-bar'),
+      text: root.querySelector('.progress-text'),
+    };
+  }
+
+  function updateProgress(progressEls, percent, text) {
+    if (!progressEls || !progressEls.bar) return;
+    progressEls.bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    if (progressEls.text) progressEls.text.textContent = text || `${percent}%`;
+  }
+
+  function showPopup(title, message) {
+    const popup = document.createElement('div');
+    popup.className = 'popup';
+    popup.innerHTML = `<div class="popup-card"><strong>${title}</strong><p>${message}</p><button data-close>OK</button></div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('[data-close]').addEventListener('click', () => popup.remove());
+    setTimeout(() => popup.remove(), 6000);
   }
 
   // Initialize when DOM is ready

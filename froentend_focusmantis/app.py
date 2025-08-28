@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file,render_template
 from flask_cors import CORS
 import os
 import tempfile
@@ -9,6 +9,7 @@ import soundfile as sf
 import numpy as np
 from pydub import AudioSegment
 import io
+import threading
 
 app = Flask(__name__)
 CORS(app)
@@ -18,6 +19,24 @@ UPLOAD_FOLDER = 'uploads'
 PROCESSED_FOLDER = 'processed'
 ALLOWED_EXTENSIONS = {'mp3', 'wav', 'm4a', 'flac'}
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Simple in-memory task progress store
+TASK_PROGRESS = {}
+TASK_LOCK = threading.Lock()
+
+def _set_progress(task_id, *, percent=None, status=None, filename=None, error=None):
+    with TASK_LOCK:
+        state = TASK_PROGRESS.get(task_id, {})
+        if percent is not None:
+            # clamp
+            state['percent'] = max(0, min(100, int(percent)))
+        if status is not None:
+            state['status'] = status
+        if filename is not None:
+            state['filename'] = filename
+        if error is not None:
+            state['error'] = error
+        TASK_PROGRESS[task_id] = state
 
 # Create directories if they don't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -151,49 +170,49 @@ def convert_audio(category):
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type'}), 400
     
-    try:
-        # Generate unique filename
-        filename = secure_filename(file.filename)
-        unique_id = str(uuid.uuid4())
-        input_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}_{filename}")
-        output_path = os.path.join(PROCESSED_FOLDER, f"{unique_id}_{category}_{filename}")
-        
-        # Save uploaded file
-        file.save(input_path)
-        
-        # Load audio
-        y, sr = librosa.load(input_path, sr=None)
-        
-        # Convert based on category
-        if category == 'lofi':
-            processed_audio, new_sr = convert_to_lofi(y, sr)
-        elif category == 'phonk':
-            processed_audio, new_sr = convert_to_phonk(y, sr)
-        elif category == 'melody':
-            processed_audio, new_sr = convert_to_melody(y, sr)
-        elif category == '8d':
-            processed_audio, new_sr = convert_to_8d(y, sr)
-        else:
-            return jsonify({'error': 'Invalid category'}), 400
-        
-        # Save processed audio
-        sf.write(output_path, processed_audio, new_sr)
-        
-        # Clean up input file
-        os.remove(input_path)
-        
-        return jsonify({
-            'success': True,
-            'message': f'Audio converted to {category} successfully',
-            'filename': f"{unique_id}_{category}_{filename}",
-            'download_url': f'/download/{unique_id}_{category}_{filename}'
-        })
-        
-    except Exception as e:
-        # Clean up on error
-        if os.path.exists(input_path):
-            os.remove(input_path)
-        return jsonify({'error': f'Conversion failed: {str(e)}'}), 500
+    # Prepare ids and paths
+    filename = secure_filename(file.filename)
+    task_id = str(uuid.uuid4())
+    input_path = os.path.join(UPLOAD_FOLDER, f"{task_id}_{filename}")
+    output_filename = f"{task_id}_{category}_{filename}"
+    output_path = os.path.join(PROCESSED_FOLDER, output_filename)
+
+    # Save uploaded file and initialize progress
+    file.save(input_path)
+    _set_progress(task_id, percent=0, status='queued')
+
+    def _worker():
+        try:
+            _set_progress(task_id, percent=10, status='loading')
+            y, sr = librosa.load(input_path, sr=None)
+            _set_progress(task_id, percent=35, status='processing')
+
+            if category == 'lofi':
+                processed_audio, new_sr = convert_to_lofi(y, sr)
+            elif category == 'phonk':
+                processed_audio, new_sr = convert_to_phonk(y, sr)
+            elif category == 'melody':
+                processed_audio, new_sr = convert_to_melody(y, sr)
+            elif category == '8d':
+                processed_audio, new_sr = convert_to_8d(y, sr)
+            else:
+                raise ValueError('Invalid category')
+
+            _set_progress(task_id, percent=75, status='writing')
+            sf.write(output_path, processed_audio, new_sr)
+
+            if os.path.exists(input_path):
+                os.remove(input_path)
+
+            _set_progress(task_id, percent=100, status='completed', filename=output_filename)
+        except Exception as e:
+            if os.path.exists(input_path):
+                os.remove(input_path)
+            _set_progress(task_id, status='failed', error=str(e))
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    return jsonify({'task_id': task_id, 'status_url': f'/progress/{task_id}'})
 
 @app.route('/download/<filename>')
 def download_file(filename):
@@ -235,22 +254,33 @@ def serve_assets(filename):
 
 @app.route('/phonk.html')
 def serve_phonk():
-    return send_file(os.path.join(BASE_DIR, 'phonk.html'))
+    return render_template ('phonk.html')
 
 
 @app.route('/melody.html')
 def serve_melody():
-    return send_file(os.path.join(BASE_DIR, 'melody.html'))
+    return render_template ('melody.html')
 
 
 @app.route('/lofi.html')
 def serve_lofi():
-    return send_file(os.path.join(BASE_DIR, 'lofi.html'))
+    return render_template ('lofi.html')
 
 
 @app.route('/8d.html')
 def serve_8d():
-    return send_file(os.path.join(BASE_DIR, '8d.html'))
+    return render_template ('8d.html')
+
+
+@app.route('/progress/<task_id>')
+def progress(task_id):
+    with TASK_LOCK:
+        data = TASK_PROGRESS.get(task_id)
+    if not data:
+        return jsonify({'error': 'Task not found'}), 404
+    if data.get('status') == 'completed' and data.get('filename'):
+        data = {**data, 'download_url': f"/download/{data['filename']}"}
+    return jsonify(data)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

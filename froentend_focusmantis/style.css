@@ -69,7 +69,7 @@ body {
 .card {
   position: relative;
   display: block;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
   border: 1px solid rgba(255,255,255,0.08);
@@ -80,24 +80,43 @@ body {
   isolation: isolate;
 }
 
+/* Color tint layer that "fills" on hover */
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  opacity: 0;
+  transition: opacity 420ms cubic-bezier(.2,.8,.2,1);
+  z-index: 0;
+}
+.card.phonk::after { background: linear-gradient(160deg, var(--phonk), #9b1d1d); }
+.card.melody::after { background: linear-gradient(160deg, var(--melody), #3aa6ff); }
+.card.lofi::after { background: linear-gradient(160deg, var(--lofi), #0e1f6f); }
+.card.d8::after    { background: linear-gradient(160deg, var(--d8), #4c24b3); }
+
 .card-bg {
   position: absolute;
   inset: 0;
-  transform: scaleY(0);
-  transform-origin: bottom;
-  transition: transform 420ms cubic-bezier(.2,.8,.2,1);
-  opacity: 0.9;
+  transform: scale(1.05);
+  transition: opacity 480ms cubic-bezier(.2,.8,.2,1), transform 480ms cubic-bezier(.2,.8,.2,1);
+  opacity: 0;
   z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 16px;
 }
 
-.card.phonk .card-bg { background: linear-gradient(160deg, var(--phonk), #9b1d1d); }
-.card.melody .card-bg { background: linear-gradient(160deg, var(--melody), #3aa6ff); }
-.card.lofi .card-bg { background: linear-gradient(160deg, var(--lofi), #0e1f6f); }
-.card.d8 .card-bg { background: linear-gradient(160deg, var(--d8), #4c24b3); }
+/* Crossfade background image per card */
+.card.phonk .card-bg  { background-image: url('assets/images/phonk-bg.jpg'); }
+.card.melody .card-bg { background-image: url('assets/images/melody-bg.jpg'); }
+.card.lofi .card-bg   { background-image: url('assets/images/lofi-bg.jpg'); }
+.card.d8 .card-bg     { background-image: url('assets/images/8d-bg.jpg'); }
 
 .card-content {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   height: 100%;
   padding: 22px 22px 18px;
   display: grid;
@@ -106,13 +125,17 @@ body {
 }
 
 .card-logo {
-  width: 84px;
-  height: 84px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  width: 90%;
+  height: auto;
   object-fit: contain;
-  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35));
-  transform: translateZ(0) scale(1);
-  transition: transform 420ms cubic-bezier(.2,.8,.2,1);
-  justify-self: center;
+  opacity: 0.22;
+  filter: drop-shadow(0 10px 20px rgba(0,0,0,0.45));
+  transition: opacity 380ms ease, transform 420ms cubic-bezier(.2,.8,.2,1);
+  z-index: 1;
 }
 
 .card-meta {
@@ -151,8 +174,12 @@ body {
 
 .card:hover .card-cta { transform: translateY(-1px); background: #fff; }
 
-.card:hover .card-bg { transform: scaleY(1); }
-.card:hover .card-logo { transform: translateZ(0) scale(1.08); }
+/* On hover: tint fills and bg crossfades in */
+.card:hover::after { opacity: 0.6; }
+.card:hover .card-bg { opacity: 1; transform: scale(1); }
+
+/* Enlarge logo to nearly exceed the card border */
+.card:hover .card-logo { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
 .card:hover .card-title { transform: translateZ(0) scale(1.04); }
 
 /* Section pages */
@@ -248,6 +275,57 @@ body {
 }
 
 .file-input label:hover { transform: translateY(-1px); background: #17213c; }
+
+/* Progress UI */
+.progress {
+  grid-column: 1 / -1;
+  height: 10px;
+  background: #eef2ff;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+.progress-bar {
+  position: absolute;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+  transition: width 300ms ease;
+}
+.progress-text {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #334155;
+}
+
+/* Popup */
+.popup {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+}
+.popup-card {
+  background: #ffffff;
+  color: #0f0f18;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  max-width: 360px;
+}
+.popup-card strong { display:block; margin-bottom: 6px; }
+.popup-card button {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
 
 /* Background images per section */
 .phonk-bg { background-image: url('assets/images/phonk-bg.jpg'); }
